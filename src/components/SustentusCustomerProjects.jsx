@@ -127,7 +127,7 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
   const navigate = useNavigate();
   const params = useParams();
   const [projects, setProjects] = useState(projectsData);
-  const [view, setView] = useState(mode === "detail" ? "detail" : "list");
+  const [view, setView] = useState("list"); // Always start with list view
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [actionOpen, setActionOpen] = useState(false);
@@ -135,17 +135,28 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
 
   // Load from URL if detail route
   useEffect(() => {
-    if (mode === "detail") {
+    console.log("useEffect triggered", { mode, params, projects: projects.length });
+    if (mode === "detail" && params.id) {
       const id = Number(params.id);
       const proj = projects.find(p => p.id === id) || projects[0];
       setSelected(proj);
       const tab = params.tab || "overview";
       setActiveTab(tab);
       setView("detail");
+      console.log("Set to detail view", { proj, tab });
     } else {
       setView("list");
+      console.log("Set to list view");
     }
   }, [mode, params, projects]);
+
+  // Ensure we always have a view set
+  useEffect(() => {
+    if (!view) {
+      setView("list");
+      console.log("Fallback: set view to list");
+    }
+  }, [view]);
 
   const openProject = (project, tab = "overview") => {
     setSelected(project);
