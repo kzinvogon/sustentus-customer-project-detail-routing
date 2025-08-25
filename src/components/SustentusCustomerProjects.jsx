@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useWebSocket } from "../contexts/WebSocketContext";
+import RealTimeCollaboration from "./RealTimeCollaboration";
 
 /**
  * Sustentus – Customer Project Flow (List → Detail, Chat, Actions, Documents)
@@ -169,13 +171,13 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
         const searchInput = document.querySelector('input[placeholder*="Search"]');
         if (searchInput) searchInput.focus();
       }
-      
+
       // Cmd/Ctrl + / for shortcuts
       if ((e.metaKey || e.ctrlKey) && e.key === '/') {
         e.preventDefault();
         setShowShortcuts(!showShortcuts);
       }
-      
+
       // Cmd/Ctrl + D for dark mode toggle
       if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
         e.preventDefault();
@@ -183,13 +185,13 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
         const themeButton = document.querySelector('[aria-label="Toggle theme"]');
         if (themeButton) themeButton.click();
       }
-      
+
       // ESC to close modals/shortcuts
       if (e.key === 'Escape') {
         if (showShortcuts) setShowShortcuts(false);
         if (actionOpen) setActionOpen(false);
       }
-      
+
       // Tab navigation with Cmd/Ctrl + number
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '6') {
         e.preventDefault();
@@ -461,6 +463,8 @@ function OverviewTab({ project }) {
             <p className="text-sm text-amber-900/90 mt-1">To keep things moving, please approve, reject, or request clarifications.</p>
           </div>
         )}
+
+        <RealTimeCollaboration projectId={project.id} />
       </div>
     </div>
   );
@@ -470,6 +474,31 @@ function ChatTab({ project }) {
   const [messages, setMessages] = useState(project.chat || []);
   const [text, setText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const {
+    sendChatMessage,
+    sendTypingIndicator,
+    getTypingUsers,
+    isUserTyping,
+    isConnected
+  } = useWebSocket();
+
+  const currentUser = { id: 'david', name: 'David', role: 'Customer' };
+
+  // Send typing indicator when user starts/stops typing
+  useEffect(() => {
+    if (isConnected && text.length > 0) {
+      sendTypingIndicator(project.id, currentUser.id, true);
+
+      const timeout = setTimeout(() => {
+        sendTypingIndicator(project.id, currentUser.id, false);
+      }, 2000);
+
+      return () => {
+        clearTimeout(timeout);
+        sendTypingIndicator(project.id, currentUser.id, false);
+      };
+    }
+  }, [text, isConnected, project.id, currentUser.id, sendTypingIndicator]);
 
   // Demo AI responses based on project context
   const generateAIResponse = (userMessage, project) => {
@@ -523,7 +552,7 @@ function ChatTab({ project }) {
 
     // Find matching response
     const userLower = userMessage.toLowerCase();
-    const matchedResponse = responses.find(r => 
+    const matchedResponse = responses.find(r =>
       r.trigger.some(trigger => userLower.includes(trigger))
     );
 
@@ -544,7 +573,7 @@ function ChatTab({ project }) {
         text: "That's a great question! Let me check with the team and get back to you with a comprehensive answer within the next hour."
       },
       {
-        role: "PM", 
+        role: "PM",
         text: "I understand your question perfectly. Let me gather the relevant information from our project files and provide you with a detailed response."
       },
       {
@@ -565,7 +594,7 @@ function ChatTab({ project }) {
 
   const send = () => {
     if (!text.trim()) return;
-    
+
     // Add user message
     const userMessage = {
       id: Date.now(),
@@ -574,19 +603,22 @@ function ChatTab({ project }) {
       text: text.trim(),
       seen: false
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
     setText("");
-    
-    // Simulate AI thinking
+
+    // Send real-time message if WebSocket is connected
+    if (isConnected) {
+      sendChatMessage(project.id, text.trim(), currentUser.id);
+    }
+
+    // Simulate AI response after a short delay
     setIsTyping(true);
-    
-    // Generate AI response after a short delay
     setTimeout(() => {
       const aiResponse = generateAIResponse(text.trim(), project);
       setMessages(prev => [...prev, aiResponse]);
       setIsTyping(false);
-    }, 1500 + Math.random() * 1000); // Random delay between 1.5-2.5 seconds
+    }, 1500 + Math.random() * 1000);
   };
 
   const handleKeyPress = (e) => {
@@ -596,18 +628,22 @@ function ChatTab({ project }) {
     }
   };
 
+  // Get typing users for this project
+  const typingUsers = getTypingUsers(project.id);
+  const otherUsersTyping = typingUsers.filter(id => id !== currentUser.id);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-2">
-        <div className="rounded-2xl bg-white ring-1 ring-black/5 shadow-sm flex flex-col h-[520px]">
-          <div className="px-4 py-3 border-b flex items-center justify-between">
-            <div className="font-semibold">Project Chat</div>
-            <div className="text-xs text-slate-500">Participants: <RoleBadge role="Customer" /> <RoleBadge role="CSM" /> <RoleBadge role="PM" /> <RoleBadge role="Expert" /></div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+      <div className="lg:col-span-2 space-y-4">
+        <Card title="Project Chat">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-700/50 min-h-[400px]">
             {messages.map((m) => (
               <div key={m.id} className={`max-w-[80%] ${m.role === "Customer" ? "ml-auto" : ""}`}>
-                <div className={`rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 ${m.role === "Customer" ? "bg-emerald-600 text-white" : "bg-white"}`}>
+                <div className={`rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 ${
+                  m.role === "Customer"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white dark:bg-slate-800 dark:text-slate-200"
+                }`}>
                   <div className="flex items-center gap-2 text-xs mb-1 opacity-80">
                     <RoleBadge role={m.role} /> <span>{m.at}</span>
                   </div>
@@ -615,11 +651,11 @@ function ChatTab({ project }) {
                 </div>
               </div>
             ))}
-            
-            {/* Typing indicator */}
-            {isTyping && (
-              <div className="max-w-[80%]">
-                <div className="rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 bg-white">
+
+            {/* Real-time typing indicators from other users */}
+            {otherUsersTyping.map((userId) => (
+              <div key={userId} className="max-w-[80%]">
+                <div className="rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 bg-white dark:bg-slate-800">
                   <div className="flex items-center gap-2 text-xs mb-1 opacity-80">
                     <RoleBadge role="CSM" /> <span>typing...</span>
                   </div>
@@ -630,46 +666,45 @@ function ChatTab({ project }) {
                   </div>
                 </div>
               </div>
+            ))}
+
+            {/* Local typing indicator */}
+            {isTyping && (
+              <div className="max-w-[80%] ml-auto">
+                <div className="rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 bg-emerald-600 text-white">
+                  <div className="flex items-center gap-2 text-xs mb-1 opacity-80">
+                    <RoleBadge role="Customer" /> <span>typing...</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                    <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
-          <div className="p-3 border-t bg-white flex items-center gap-2">
+
+          <div className="p-3 border-t dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center gap-2">
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Type a message…"
-              className="flex-1 rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 rounded-xl border dark:border-slate-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-slate-700 dark:text-white"
             />
-            <button 
-              onClick={send} 
+            <button
+              onClick={send}
               disabled={!text.trim() || isTyping}
-              className="rounded-xl bg-black text-white px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+              className="rounded-xl bg-black dark:bg-white text-white dark:text-black px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors duration-200"
             >
               Send
             </button>
           </div>
-        </div>
-      </div>
-
-      <div className="space-y-5">
-        <Card title="Chat Info">
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between"><span>Unread</span><span className="font-medium">{project.chatUnread || 0}</span></div>
-            <div className="flex items-center justify-between"><span>SLA timer</span><span className="font-medium">4h 12m</span></div>
-            <div className="flex items-center justify-between"><span>Last message</span><span className="font-medium">{messages[messages.length - 1]?.at || "—"}</span></div>
-          </div>
-        </Card>
-
-        <Card title="Quick Actions">
-          <div className="flex flex-wrap gap-2">
-            <button className="rounded-lg border px-3 py-1.5">Attach file</button>
-            <button className="rounded-lg border px-3 py-1.5">Add watcher</button>
-            <button className="rounded-lg border px-3 py-1.5">Mark as resolved</button>
-          </div>
         </Card>
 
         <Card title="Demo Tips">
-          <div className="text-xs text-slate-600 space-y-2">
+          <div className="text-xs text-slate-600 dark:text-slate-400 space-y-2">
             <p>Try asking about:</p>
             <ul className="list-disc list-inside space-y-1">
               <li>Project approval</li>
@@ -678,7 +713,47 @@ function ChatTab({ project }) {
               <li>Technical details</li>
               <li>Document uploads</li>
             </ul>
-            <p className="text-xs text-slate-500 mt-2">The AI will respond based on the project context!</p>
+            <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
+              The AI will respond based on the project context!
+            </p>
+            {isConnected && (
+              <div className="mt-2 p-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                <span className="text-emerald-700 dark:text-emerald-300">🟢 Real-time chat enabled</span>
+              </div>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <Card title="Real-time Status">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+              <span className="text-sm dark:text-white">
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+            {isConnected && (
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Messages are sent in real-time to all team members
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Online Team">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="text-sm dark:text-white">David (You)</span>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {otherUsersTyping.length > 0
+                ? `${otherUsersTyping.length} other team member(s) online`
+                : 'No other team members online'
+              }
+            </div>
           </div>
         </Card>
       </div>
@@ -797,7 +872,7 @@ function DocumentsTab({ project, onUploadDoc }) {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
       const file = files[0];
@@ -816,7 +891,7 @@ function DocumentsTab({ project, onUploadDoc }) {
 
   const simulateUpload = () => {
     if (!fileObj) return;
-    
+
     setUploadProgress(0);
     const interval = setInterval(() => {
       setUploadProgress(prev => {
@@ -888,8 +963,8 @@ function DocumentsTab({ project, onUploadDoc }) {
             {/* Drag & Drop Zone */}
             <div
               className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors duration-200 ${
-                isDragOver 
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                isDragOver
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                   : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'
               }`}
               onDragOver={handleDragOver}
@@ -907,7 +982,7 @@ function DocumentsTab({ project, onUploadDoc }) {
                 className="hidden"
                 id="file-upload"
               />
-              <label 
+              <label
                 htmlFor="file-upload"
                 className="inline-block mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors duration-200"
               >
@@ -936,7 +1011,7 @@ function DocumentsTab({ project, onUploadDoc }) {
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
-                  <div 
+                  <div
                     className="bg-blue-600 h-2 rounded-full transition-all duration-200"
                     style={{ width: `${uploadProgress}%` }}
                   />
@@ -951,7 +1026,7 @@ function DocumentsTab({ project, onUploadDoc }) {
             >
               {uploadProgress > 0 ? 'Uploading...' : 'Upload Document'}
             </button>
-            
+
             <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
               Note: This demo simulates upload by adding the file to the list.
             </p>
@@ -1076,7 +1151,7 @@ function ProjectTimeline({ project }) {
           <div key={milestone.id} className="flex items-center gap-4">
             {/* Status indicator */}
             <div className={`w-3 h-3 rounded-full ${getStatusColor(milestone.status)}`} />
-            
+
             {/* Progress bar */}
             <div className="flex-1">
               <div className="flex items-center justify-between text-sm mb-1">
@@ -1084,9 +1159,9 @@ function ProjectTimeline({ project }) {
                 <span className="text-slate-500">{milestone.date}</span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-2">
-                <div 
+                <div
                   className={`h-2 rounded-full transition-all duration-500 ${
-                    milestone.status === 'completed' ? 'bg-emerald-500' : 
+                    milestone.status === 'completed' ? 'bg-emerald-500' :
                     milestone.status === 'in-progress' ? 'bg-blue-500' : 'bg-slate-300'
                   }`}
                   style={{ width: `${milestone.progress}%` }}

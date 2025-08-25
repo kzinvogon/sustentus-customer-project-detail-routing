@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import SustentusCustomerProjects from './components/SustentusCustomerProjects'
+import { WebSocketProvider } from './contexts/WebSocketContext'
 
 function Layout({ children }) {
   const [isDark, setIsDark] = useState(false);
@@ -59,14 +60,16 @@ function Layout({ children }) {
 
 export default function App() {
   return (
-    <Layout>
-      <Routes>
-        <Route path='/' element={<Navigate to='/projects' replace />} />
-        <Route path='/projects' element={<SustentusCustomerProjects mode='list' />} />
-        <Route path='/projects/:id' element={<SustentusCustomerProjects mode='detail' />} />
-        <Route path='/projects/:id/:tab' element={<SustentusCustomerProjects mode='detail' />} />
-        <Route path='*' element={<div className='text-sm text-slate-600'>Not Found</div>} />
-      </Routes>
-    </Layout>
+    <WebSocketProvider>
+      <Layout>
+        <Routes>
+          <Route path='/' element={<Navigate to='/projects' replace />} />
+          <Route path='/projects' element={<SustentusCustomerProjects mode='list' />} />
+          <Route path='/projects/:id' element={<SustentusCustomerProjects mode='detail' />} />
+          <Route path='/projects/:id/:tab' element={<SustentusCustomerProjects mode='detail' />} />
+          <Route path='*' element={<div className='text-sm text-slate-600'>Not Found</div>} />
+        </Routes>
+      </Layout>
+    </WebSocketProvider>
   )
 }
