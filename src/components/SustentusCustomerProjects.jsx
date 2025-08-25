@@ -132,6 +132,7 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [actionOpen, setActionOpen] = useState(false);
   const [actionType, setActionType] = useState("Approve");
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   // Load from URL if detail route
   useEffect(() => {
@@ -157,6 +158,53 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
       console.log("Fallback: set view to list");
     }
   }, [view]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Cmd/Ctrl + K for search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        // Focus search input
+        const searchInput = document.querySelector('input[placeholder*="Search"]');
+        if (searchInput) searchInput.focus();
+      }
+      
+      // Cmd/Ctrl + / for shortcuts
+      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+        e.preventDefault();
+        setShowShortcuts(!showShortcuts);
+      }
+      
+      // Cmd/Ctrl + D for dark mode toggle
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault();
+        // Trigger theme toggle (this will be handled by the parent component)
+        const themeButton = document.querySelector('[aria-label="Toggle theme"]');
+        if (themeButton) themeButton.click();
+      }
+      
+      // ESC to close modals/shortcuts
+      if (e.key === 'Escape') {
+        if (showShortcuts) setShowShortcuts(false);
+        if (actionOpen) setActionOpen(false);
+      }
+      
+      // Tab navigation with Cmd/Ctrl + number
+      if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '6') {
+        e.preventDefault();
+        const tabIndex = parseInt(e.key) - 1;
+        const tabs = ['overview', 'dashboard', 'chat', 'financials', 'profile', 'documents'];
+        if (tabs[tabIndex] && view === 'detail') {
+          setActiveTab(tabs[tabIndex]);
+          if (selected) navigate(`/projects/${selected.id}/${tabs[tabIndex]}`);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showShortcuts, actionOpen, view, selected, navigate]);
 
   const openProject = (project, tab = "overview") => {
     setSelected(project);
@@ -218,6 +266,9 @@ export default function SustentusCustomerProjects({ mode = "list" }) {
         onClose={() => setActionOpen(false)}
         project={selected}
       />
+
+      {showShortcuts && <KeyboardShortcuts />}
+      <NotificationSystem />
     </div>
   );
 }
@@ -320,6 +371,7 @@ function ProjectDetail({ project, activeTab, onBack, onOpenAction, onTab, onUplo
 
       <div className="flex items-center gap-2">
         <TabButton active={activeTab === "overview"} onClick={() => onTab("overview")}>Overview</TabButton>
+        <TabButton active={activeTab === "dashboard"} onClick={() => onTab("dashboard")}>Dashboard</TabButton>
         <TabButton active={activeTab === "chat"} onClick={() => onTab("chat")}>Chat</TabButton>
         <TabButton active={activeTab === "financials"} onClick={() => onTab("financials")}>Financials</TabButton>
         <TabButton active={activeTab === "profile"} onClick={() => onTab("profile")}>Profile</TabButton>
@@ -333,6 +385,7 @@ function ProjectDetail({ project, activeTab, onBack, onOpenAction, onTab, onUplo
       </div>
 
       {activeTab === "overview" && <OverviewTab project={project} />}
+      {activeTab === "dashboard" && <DashboardTab project={project} />}
       {activeTab === "chat" && <ChatTab project={project} />}
       {activeTab === "financials" && <FinancialsTab project={project} />}
       {activeTab === "profile" && <ProfileTab project={project} />}
@@ -354,6 +407,8 @@ function OverviewTab({ project }) {
         <Card title="Project Description">
           <p className="text-slate-700 leading-relaxed">{project.description}</p>
         </Card>
+
+        <ProjectTimeline project={project} />
 
         <Card title="Last Actions (most recent first)">
           <ul className="divide-y">
@@ -726,36 +781,101 @@ function DocumentsTab({ project, onUploadDoc }) {
   const docs = project.documents || [];
   const [uploadName, setUploadName] = useState("");
   const [fileObj, setFileObj] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      const file = files[0];
+      setFileObj(file);
+      setUploadName(file.name);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFileObj(file);
+      setUploadName(file.name);
+    }
+  };
+
+  const simulateUpload = () => {
+    if (!fileObj) return;
+    
+    setUploadProgress(0);
+    const interval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          onUploadDoc && onUploadDoc(fileObj);
+          setFileObj(null);
+          setUploadName("");
+          setUploadProgress(0);
+          return 0;
+        }
+        return prev + 10;
+      });
+    }, 100);
+  };
+
+  const getFileIcon = (fileName) => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'pdf': return '📄';
+      case 'doc':
+      case 'docx': return '📝';
+      case 'xls':
+      case 'xlsx': return '📊';
+      case 'jpg':
+      case 'jpeg':
+      case 'png': return '🖼️';
+      case 'zip':
+      case 'rar': return '📦';
+      default: return '📎';
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-2 space-y-4">
         <Card title="Documents">
           {docs.length ? (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-slate-500">
-                  <th className="py-2">Doc ID</th>
-                  <th>Name</th>
-                  <th>Uploaded By</th>
-                  <th>Date</th>
-                  <th className="text-right pr-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {docs.map((d) => (
-                  <tr key={d.id} className="border-t">
-                    <td className="py-2">{d.id}</td>
-                    <td>{d.name}</td>
-                    <td><RoleBadge role={d.uploadedBy} /></td>
-                    <td>{d.date}</td>
-                    <td className="text-right pr-2">
-                      <button className="rounded-lg border px-3 py-1.5">View</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="space-y-3">
+              {docs.map((d) => (
+                <div key={d.id} className="flex items-center gap-3 p-3 rounded-lg border dark:border-slate-700 border-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+                  <div className="text-2xl">{getFileIcon(d.name)}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate dark:text-white">{d.name}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Uploaded by <RoleBadge role={d.uploadedBy} /> on {d.date}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 dark:border-slate-600 dark:text-slate-300 transition-colors duration-200">
+                      View
+                    </button>
+                    <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 dark:border-slate-600 dark:text-slate-300 transition-colors duration-200">
+                      Download
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <Empty>No documents uploaded yet.</Empty>
           )}
@@ -765,24 +885,76 @@ function DocumentsTab({ project, onUploadDoc }) {
       <div className="space-y-4">
         <Card title="Upload a Document">
           <div className="space-y-3 text-sm">
-            <input
-              type="file"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                setFileObj(f || null);
-                setUploadName(f?.name || "");
-              }}
-              className="block w-full text-sm"
-            />
-            <div className="text-xs text-slate-500">Selected: <span className="font-medium">{uploadName || "—"}</span></div>
-            <button
-              onClick={() => onUploadDoc && fileObj && onUploadDoc(fileObj)}
-              className="rounded-lg bg-black text-white px-4 py-2 disabled:opacity-50"
-              disabled={!fileObj}
+            {/* Drag & Drop Zone */}
+            <div
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors duration-200 ${
+                isDragOver 
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                  : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
-              Upload
+              <div className="text-4xl mb-2">📁</div>
+              <p className="text-slate-600 dark:text-slate-400 mb-2">
+                {isDragOver ? 'Drop files here' : 'Drag & drop files here'}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-500">or</p>
+              <input
+                type="file"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="file-upload"
+              />
+              <label 
+                htmlFor="file-upload"
+                className="inline-block mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer transition-colors duration-200"
+              >
+                Choose File
+              </label>
+            </div>
+
+            {/* File Preview */}
+            {fileObj && (
+              <div className="p-3 bg-slate-50 dark:bg-slate-700 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">{getFileIcon(fileObj.name)}</span>
+                  <span className="font-medium text-sm dark:text-white">{fileObj.name}</span>
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Size: {(fileObj.size / 1024 / 1024).toFixed(2)} MB
+                </div>
+              </div>
+            )}
+
+            {/* Upload Progress */}
+            {uploadProgress > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span>Uploading...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-200"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={simulateUpload}
+              className="w-full rounded-lg bg-black dark:bg-white text-white dark:text-black px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors duration-200"
+              disabled={!fileObj || uploadProgress > 0}
+            >
+              {uploadProgress > 0 ? 'Uploading...' : 'Upload Document'}
             </button>
-            <p className="text-xs text-slate-500">Note: This demo simulates upload by adding the file to the list.</p>
+            
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
+              Note: This demo simulates upload by adding the file to the list.
+            </p>
           </div>
         </Card>
       </div>
@@ -844,9 +1016,11 @@ function ActionModal({ open, onClose, type, project }) {
 }
 
 const Card = ({ title, children }) => (
-  <div className="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-    <div className="px-5 py-4 border-b flex items-center justify-between"><h3 className="font-semibold">{title}</h3></div>
-    <div className="px-5 py-4">{children}</div>
+  <div className="rounded-2xl shadow-sm ring-1 ring-black/5 transition-colors duration-200 dark:bg-slate-800 dark:ring-slate-700 bg-white">
+    <div className="px-5 py-4 border-b flex items-center justify-between dark:border-slate-700 border-slate-200">
+      <h3 className="font-semibold dark:text-white">{title}</h3>
+    </div>
+    <div className="px-5 py-4 dark:text-slate-200">{children}</div>
   </div>
 );
 
@@ -867,3 +1041,261 @@ const Field = ({ label, type = "text", defaultValue = "" }) => (
     <input type={type} defaultValue={defaultValue} className="mt-1 w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
   </div>
 );
+
+function ProjectTimeline({ project }) {
+  const milestones = [
+    { id: 1, title: "Requirements Gathering", status: "completed", date: "15 Aug 2025", progress: 100 },
+    { id: 2, title: "Design & Planning", status: "completed", date: "18 Aug 2025", progress: 100 },
+    { id: 3, title: "Development Phase", status: "in-progress", date: "22 Aug 2025", progress: 65 },
+    { id: 4, title: "Testing & QA", status: "pending", date: "25 Aug 2025", progress: 0 },
+    { id: 5, title: "Deployment", status: "pending", date: "28 Aug 2025", progress: 0 }
+  ];
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'completed': return 'bg-emerald-500';
+      case 'in-progress': return 'bg-blue-500';
+      case 'pending': return 'bg-slate-300';
+      default: return 'bg-slate-300';
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'completed': return 'Completed';
+      case 'in-progress': return 'In Progress';
+      case 'pending': return 'Pending';
+      default: return 'Unknown';
+    }
+  };
+
+  return (
+    <Card title="Project Timeline">
+      <div className="space-y-4">
+        {milestones.map((milestone, index) => (
+          <div key={milestone.id} className="flex items-center gap-4">
+            {/* Status indicator */}
+            <div className={`w-3 h-3 rounded-full ${getStatusColor(milestone.status)}`} />
+            
+            {/* Progress bar */}
+            <div className="flex-1">
+              <div className="flex items-center justify-between text-sm mb-1">
+                <span className="font-medium">{milestone.title}</span>
+                <span className="text-slate-500">{milestone.date}</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all duration-500 ${
+                    milestone.status === 'completed' ? 'bg-emerald-500' : 
+                    milestone.status === 'in-progress' ? 'bg-blue-500' : 'bg-slate-300'
+                  }`}
+                  style={{ width: `${milestone.progress}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
+                <span>{getStatusText(milestone.status)}</span>
+                <span>{milestone.progress}%</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function DashboardTab({ project }) {
+  const metrics = [
+    { label: "Project Progress", value: "65%", color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/20" },
+    { label: "Days Remaining", value: "12", color: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-900/20" },
+    { label: "Budget Used", value: "€1,200", color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/20" },
+    { label: "Team Members", value: "4", color: "text-purple-600", bg: "bg-purple-100 dark:bg-purple-900/20" }
+  ];
+
+  const recentActivity = [
+    { type: "comment", text: "Customer approved requirements v1.3", time: "2 hours ago", icon: "💬" },
+    { type: "upload", text: "PM uploaded project timeline", time: "4 hours ago", icon: "📁" },
+    { type: "status", text: "Project moved to Development phase", time: "1 day ago", icon: "🔄" },
+    { type: "chat", text: "Technical discussion in chat", time: "2 days ago", icon: "💭" }
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {metrics.map((metric, index) => (
+          <div key={index} className={`p-4 rounded-xl ${metric.bg} border dark:border-slate-700`}>
+            <div className={`text-2xl font-bold ${metric.color}`}>{metric.value}</div>
+            <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">{metric.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Project Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card title="Project Health">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600 dark:text-slate-400">Overall Score</span>
+              <span className="text-lg font-bold text-emerald-600">8.5/10</span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Timeline</span>
+                <span className="text-emerald-600">On Track</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span>Budget</span>
+                <span className="text-amber-600">Under Budget</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span>Quality</span>
+                <span className="text-emerald-600">Excellent</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card title="Recent Activity">
+          <div className="space-y-3">
+            {recentActivity.map((activity, index) => (
+              <div key={index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+                <span className="text-lg">{activity.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium dark:text-white">{activity.text}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">{activity.time}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Quick Actions */}
+      <Card title="Quick Actions">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <button className="p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+            <div className="text-2xl mb-2">📊</div>
+            <div className="text-xs font-medium dark:text-white">Generate Report</div>
+          </button>
+          <button className="p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+            <div className="text-2xl mb-2">📅</div>
+            <div className="text-xs font-medium dark:text-white">Schedule Meeting</div>
+          </button>
+          <button className="p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+            <div className="text-2xl mb-2">📧</div>
+            <div className="text-xs font-medium dark:text-white">Send Update</div>
+          </button>
+          <button className="p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+            <div className="text-2xl mb-2">⚡</div>
+            <div className="text-xs font-medium dark:text-white">Quick Actions</div>
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function KeyboardShortcuts() {
+  const shortcuts = [
+    { key: "⌘ + K", description: "Quick search" },
+    { key: "⌘ + N", description: "New project" },
+    { key: "⌘ + S", description: "Save changes" },
+    { key: "⌘ + /", description: "Show shortcuts" },
+    { key: "⌘ + D", description: "Toggle dark mode" },
+    { key: "⌘ + T", description: "Switch tabs" }
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold dark:text-white">Keyboard Shortcuts</h3>
+          <button className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">✕</button>
+        </div>
+        <div className="space-y-3">
+          {shortcuts.map((shortcut, index) => (
+            <div key={index} className="flex items-center justify-between">
+              <span className="text-sm text-slate-600 dark:text-slate-400">{shortcut.description}</span>
+              <kbd className="px-2 py-1 text-xs font-semibold text-slate-800 bg-slate-100 dark:bg-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded">
+                {shortcut.key}
+              </kbd>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">
+          Press ESC to close
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NotificationSystem() {
+  const [notifications, setNotifications] = useState([
+    { id: 1, type: 'success', title: 'Project Updated', message: 'Your project has been successfully updated.', time: '2 minutes ago' },
+    { id: 2, type: 'info', title: 'New Message', message: 'You have a new message in the project chat.', time: '5 minutes ago' },
+    { id: 3, type: 'warning', title: 'Deadline Approaching', message: 'Project deadline is approaching in 3 days.', time: '1 hour ago' }
+  ]);
+
+  const getNotificationIcon = (type) => {
+    switch (type) {
+      case 'success': return '✅';
+      case 'error': return '❌';
+      case 'warning': return '⚠️';
+      case 'info': return 'ℹ️';
+      default: return '📢';
+    }
+  };
+
+  const getNotificationColor = (type) => {
+    switch (type) {
+      case 'success': return 'border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800';
+      case 'error': return 'border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800';
+      case 'warning': return 'border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800';
+      case 'info': return 'border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800';
+      default: return 'border-slate-200 bg-slate-50 dark:bg-slate-900/20 dark:border-slate-800';
+    }
+  };
+
+  const removeNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const addNotification = (type, title, message) => {
+    const newNotification = {
+      id: Date.now(),
+      type,
+      title,
+      message,
+      time: 'Just now'
+    };
+    setNotifications(prev => [newNotification, ...prev]);
+  };
+
+  return (
+    <div className="fixed top-4 right-4 z-40 space-y-2 max-w-sm">
+      {notifications.map((notification) => (
+        <div
+          key={notification.id}
+          className={`p-4 rounded-lg border ${getNotificationColor(notification.type)} shadow-lg transition-all duration-300 transform hover:scale-105`}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-lg">{getNotificationIcon(notification.type)}</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-sm dark:text-white">{notification.title}</div>
+              <div className="text-sm text-slate-600 dark:text-slate-400 mt-1">{notification.message}</div>
+              <div className="text-xs text-slate-500 dark:text-slate-500 mt-2">{notification.time}</div>
+            </div>
+            <button
+              onClick={() => removeNotification(notification.id)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-lg"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
