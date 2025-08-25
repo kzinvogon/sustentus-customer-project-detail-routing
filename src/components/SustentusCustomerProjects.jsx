@@ -414,14 +414,131 @@ function OverviewTab({ project }) {
 function ChatTab({ project }) {
   const [messages, setMessages] = useState(project.chat || []);
   const [text, setText] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+
+  // Demo AI responses based on project context
+  const generateAIResponse = (userMessage, project) => {
+    const responses = [
+      {
+        trigger: ["approve", "approval", "ok", "yes", "good", "looks good", "fine"],
+        response: "Excellent! I'll mark this as approved and notify the development team to proceed with implementation. You should receive a confirmation email within the next hour.",
+        role: "CSM"
+      },
+      {
+        trigger: ["reject", "no", "bad", "wrong", "issue", "problem", "concern"],
+        response: "I understand your concerns. Let me schedule a call with the team to address these issues and come back with a revised approach. When would be a good time for you?",
+        role: "CSM"
+      },
+      {
+        trigger: ["timeline", "schedule", "when", "deadline", "due date", "completion"],
+        response: `Based on our current progress, we're looking at completion around ${project.nextAction?.due || "the end of next month"}. I can break down the remaining milestones and show you exactly what's left to complete.`,
+        role: "PM"
+      },
+      {
+        trigger: ["cost", "price", "budget", "quote", "money", "payment"],
+        response: `The current quote is €${project.quotes?.[0]?.amount?.toLocaleString() || "pending"}. I can provide a detailed breakdown of all line items, or we can discuss payment terms if you'd like to proceed.`,
+        role: "PM"
+      },
+      {
+        trigger: ["technical", "tech", "implementation", "how", "code", "development"],
+        response: "Great technical question! I'll have our senior developer review this and provide you with a detailed response including code examples, architecture diagrams, and implementation steps.",
+        role: "Expert"
+      },
+      {
+        trigger: ["document", "file", "upload", "attachment", "pdf", "spec"],
+        response: "I can see you've uploaded a document. I'll review it thoroughly and get back to you with any questions or feedback within the next few hours. This will help us move the project forward.",
+        role: "CSM"
+      },
+      {
+        trigger: ["status", "progress", "update", "where are we"],
+        response: `Currently, your project is in the "${project.stage}" stage. The next action required is: ${project.nextAction?.label || "team review"}. Would you like me to provide a detailed progress report?`,
+        role: "PM"
+      },
+      {
+        trigger: ["team", "who", "contact", "person"],
+        response: "Our team includes a Customer Success Manager (CSM), Project Manager (PM), and Technical Expert. I can connect you with any specific team member or schedule a group call to discuss your project.",
+        role: "CSM"
+      },
+      {
+        trigger: ["quality", "testing", "review", "check"],
+        response: "Quality assurance is built into every phase of our process. We have automated testing, code reviews, and client approval checkpoints. Would you like me to show you our quality metrics for this project?",
+        role: "Expert"
+      }
+    ];
+
+    // Find matching response
+    const userLower = userMessage.toLowerCase();
+    const matchedResponse = responses.find(r => 
+      r.trigger.some(trigger => userLower.includes(trigger))
+    );
+
+    if (matchedResponse) {
+      return {
+        id: Date.now() + 1,
+        role: matchedResponse.role,
+        at: new Date().toLocaleTimeString(),
+        text: matchedResponse.response,
+        seen: false
+      };
+    }
+
+    // Default intelligent responses based on project context
+    const defaultResponses = [
+      {
+        role: "CSM",
+        text: "That's a great question! Let me check with the team and get back to you with a comprehensive answer within the next hour."
+      },
+      {
+        role: "PM", 
+        text: "I understand your question perfectly. Let me gather the relevant information from our project files and provide you with a detailed response."
+      },
+      {
+        role: "Expert",
+        text: "Excellent technical question! I'll need to review the current implementation and provide you with a thorough explanation including best practices."
+      }
+    ];
+
+    const randomResponse = defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
+    return {
+      id: Date.now() + 1,
+      role: randomResponse.role,
+      at: new Date().toLocaleTimeString(),
+      text: randomResponse.text,
+      seen: false
+    };
+  };
 
   const send = () => {
     if (!text.trim()) return;
-    setMessages((m) => [
-      ...m,
-      { id: Date.now(), role: "Customer", at: new Date().toLocaleTimeString(), text, seen: false },
-    ]);
+    
+    // Add user message
+    const userMessage = {
+      id: Date.now(),
+      role: "Customer",
+      at: new Date().toLocaleTimeString(),
+      text: text.trim(),
+      seen: false
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
     setText("");
+    
+    // Simulate AI thinking
+    setIsTyping(true);
+    
+    // Generate AI response after a short delay
+    setTimeout(() => {
+      const aiResponse = generateAIResponse(text.trim(), project);
+      setMessages(prev => [...prev, aiResponse]);
+      setIsTyping(false);
+    }, 1500 + Math.random() * 1000); // Random delay between 1.5-2.5 seconds
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
   };
 
   return (
@@ -443,15 +560,38 @@ function ChatTab({ project }) {
                 </div>
               </div>
             ))}
+            
+            {/* Typing indicator */}
+            {isTyping && (
+              <div className="max-w-[80%]">
+                <div className="rounded-2xl px-4 py-2 shadow-sm ring-1 ring-black/5 bg-white">
+                  <div className="flex items-center gap-2 text-xs mb-1 opacity-80">
+                    <RoleBadge role="CSM" /> <span>typing...</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="p-3 border-t bg-white flex items-center gap-2">
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onKeyPress={handleKeyPress}
               placeholder="Type a message…"
               className="flex-1 rounded-xl border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <button onClick={send} className="rounded-xl bg-black text-white px-4 py-2">Send</button>
+            <button 
+              onClick={send} 
+              disabled={!text.trim() || isTyping}
+              className="rounded-xl bg-black text-white px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800"
+            >
+              Send
+            </button>
           </div>
         </div>
       </div>
@@ -470,6 +610,20 @@ function ChatTab({ project }) {
             <button className="rounded-lg border px-3 py-1.5">Attach file</button>
             <button className="rounded-lg border px-3 py-1.5">Add watcher</button>
             <button className="rounded-lg border px-3 py-1.5">Mark as resolved</button>
+          </div>
+        </Card>
+
+        <Card title="Demo Tips">
+          <div className="text-xs text-slate-600 space-y-2">
+            <p>Try asking about:</p>
+            <ul className="list-disc list-inside space-y-1">
+              <li>Project approval</li>
+              <li>Timeline & deadlines</li>
+              <li>Costs & quotes</li>
+              <li>Technical details</li>
+              <li>Document uploads</li>
+            </ul>
+            <p className="text-xs text-slate-500 mt-2">The AI will respond based on the project context!</p>
           </div>
         </Card>
       </div>
